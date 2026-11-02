@@ -1,0 +1,8 @@
+{
+  "name": "stany-salonow",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Widget karty towaru IdoSell: stany magazynowe produktu w salonach (domenach) + proxy do API Admin",
+  "engines": { "node": ">=18" }
+}
