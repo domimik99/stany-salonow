@@ -4,6 +4,8 @@ const QTY_KEYS = ['disposableQuantity', 'disposable_quantity', 'availableQuantit
 const STOCK_KEYS = ['stockId', 'stock_id'];
 const SIZE_KEYS = ['sizeId', 'size_id'];
 const TIMEOUT_MS = 5000;
+const MAX_PRODUCTS = 30;
+const CONCURRENCY = 5;
 
 const normalizeHost = (h) => String(h || '').toLowerCase().replace(/^www\./, '');
 // Magazyn może przyjść jako 1 albo "M1" – oba zapisy traktujemy tak samo.
@@ -59,6 +61,36 @@ function present(entry) {
   };
 }
 
+async function fetchProduct(productId, env) {
+  const url = `https://${env.IDOSELL_PANEL_DOMAIN}/api/admin/${env.IDOSELL_API_VERSION}/products/stocks?identType=id&products=${productId}`;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    const r = await fetch(url, { headers: { 'X-API-KEY': env.IDOSELL_API_KEY, Accept: 'application/json' }, signal: ctrl.signal });
+    if (!r.ok) { console.error('stany-salonow: IdoSell API status', r.status, 'product', productId); return null; }
+    const stocks = collectStocks(await r.json());
+    return Object.fromEntries(config.salons.map((s) => [s.id, present(stocks.get(normalizeStock(s.stockId)) || { total: 0, sizes: {} })]));
+  } catch (e) {
+    console.error('stany-salonow: IdoSell API', e.name, 'product', productId);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function mapLimited(items, limit, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  const worker = async () => { while (next < items.length) { const i = next++; out[i] = await fn(items[i]); } };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
+function fail(res, status, error) {
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(status).json({ error });
+}
+
 export default async function handler(req, res) {
   const origin = req.headers.origin;
   const originHost = origin ? hostOf(origin) : null;
@@ -71,50 +103,31 @@ export default async function handler(req, res) {
   res.setHeader('Vary', 'Origin');
 
   if (req.method === 'OPTIONS') return res.status(204).end();
-  if (req.method !== 'GET') return res.status(405).json({ error: 'method_not_allowed' });
-  if (!originAllowed) return res.status(403).json({ error: 'origin_not_allowed' });
+  if (req.method !== 'GET') return fail(res, 405, 'method_not_allowed');
+  if (!originAllowed) return fail(res, 403, 'origin_not_allowed');
 
-  const productId = new URL(req.url, 'http://localhost').searchParams.get('productId') || '';
-  if (!/^\d{1,10}$/.test(productId)) return res.status(400).json({ error: 'invalid_product_id' });
+  const params = new URL(req.url, 'http://localhost').searchParams;
+  // Domena sklepu w adresie = osobny wpis w cache CDN dla każdego salonu (nagłówek CORS zawsze pasuje).
+  if (normalizeHost(params.get('shop')) !== originHost) return fail(res, 400, 'shop_mismatch');
 
-  const { IDOSELL_PANEL_DOMAIN, IDOSELL_API_VERSION, IDOSELL_API_KEY } = process.env;
-  if (!IDOSELL_PANEL_DOMAIN || !IDOSELL_API_VERSION || !IDOSELL_API_KEY) {
+  const ids = [...new Set((params.get('productIds') || params.get('productId') || '').split(',').map((s) => s.trim()).filter(Boolean))];
+  if (!ids.length || ids.length > MAX_PRODUCTS || !ids.every((id) => /^\d{1,10}$/.test(id))) return fail(res, 400, 'invalid_product_ids');
+
+  const env = process.env;
+  if (!env.IDOSELL_PANEL_DOMAIN || !env.IDOSELL_API_VERSION || !env.IDOSELL_API_KEY) {
     console.error('stany-salonow: brak zmiennych środowiskowych');
-    return res.status(500).json({ error: 'config' });
+    return fail(res, 500, 'config');
   }
 
-  const url = `https://${IDOSELL_PANEL_DOMAIN}/api/admin/${IDOSELL_API_VERSION}/products/stocks?identType=id&products=${productId}`;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
-  let data;
-  try {
-    const r = await fetch(url, { headers: { 'X-API-KEY': IDOSELL_API_KEY, Accept: 'application/json' }, signal: ctrl.signal });
-    if (!r.ok) {
-      console.error('stany-salonow: IdoSell API status', r.status);
-      return res.status(502).json({ error: 'upstream' });
-    }
-    data = await r.json();
-  } catch (e) {
-    console.error('stany-salonow: IdoSell API', e.name);
-    return res.status(502).json({ error: 'upstream' });
-  } finally {
-    clearTimeout(timer);
-  }
+  const results = await mapLimited(ids, CONCURRENCY, (id) => fetchProduct(id, env));
+  if (results.every((r) => r === null)) return fail(res, 502, 'upstream');
 
-  const stocks = collectStocks(data);
-  const salons = config.salons.map((s) => ({
-    id: s.id,
-    name: s.name,
-    domain: s.domain,
-    ...present(stocks.get(normalizeStock(s.stockId)) || { total: 0, sizes: {} }),
-  }));
-
-  res.setHeader('Cache-Control', `public, s-maxage=${config.cacheSeconds}, stale-while-revalidate=${config.cacheSeconds * 2}`);
+  res.setHeader('Cache-Control', `public, max-age=0, s-maxage=${config.cacheSeconds}, stale-while-revalidate=${config.cacheSeconds * 2}`);
   return res.status(200).json({
-    productId,
     display: config.display,
     lowStockThreshold: config.lowStockThreshold,
     linkTemplate: config.linkTemplate,
-    salons,
+    salons: config.salons.map(({ id, name, domain }) => ({ id, name, domain })),
+    products: Object.fromEntries(ids.map((id, i) => [id, results[i]])),
   });
 }

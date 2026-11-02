@@ -4,7 +4,7 @@ Link **Sprawdź dostępność w salonach** na karcie towaru. Po kliknięciu z pr
 
 ```
 Karta towaru (katowice.example.pl)                Vercel                          Panel IdoSell
-widget.js  ── GET /api/stock?productId=123 ──▶  api/stock.js  ── X-API-KEY ──▶  /api/admin/<wersja>/products/stocks
+widget.js  ── GET /api/stock?productIds=…&shop=… ──▶ api/stock.js  ── X-API-KEY ──▶  /api/admin/<wersja>/products/stocks
            ◀── salony + poziomy/stany ───────  (CORS, walidacja, cache 60 s)  ◀── stany per magazyn i rozmiar
 ```
 
@@ -15,7 +15,7 @@ Klucz API nigdy nie trafia do przeglądarki – zna go tylko funkcja serwerowa.
 | Plik | Rola |
 |---|---|
 | `config/salons.js` | salony: nazwa, domena, ID magazynu; tryb prezentacji, próg „ostatnie sztuki”, format linku, cache |
-| `api/stock.js` | proxy do API Admin IdoSell: biała lista domen (CORS), walidacja ID, timeout 5 s, zwraca tylko salony z konfiguracji |
+| `api/stock.js` | proxy do API Admin IdoSell: biała lista domen (CORS), parametr `shop` w kluczu cache CDN, 1–30 produktów na zapytanie, timeout 5 s, zwraca tylko salony z konfiguracji |
 | `public/widget.js` | link w karcie towaru + panel wysuwany z prawej (styl oddziałów: granat/niebieski, Lato), osadzany przez Dodatki HTML/JS |
 
 ## Założenie
@@ -48,12 +48,12 @@ Do potwierdzenia na sklepie testowym:
 - ID produktu: `#projector_form[data-product_id]`, potem `[name="product"]`, awaryjnie końcówka adresu `…-<ID>.html`
 - wybrany rozmiar: `#projector_form [name="size"]` (`uniw` = towar bez rozmiarów)
 - link do innego salonu: ta sama ścieżka (`/pl/products/…-<ID>.html`) na domenie salonu – działa, gdy sklepy mają ten sam adres produktu; jeśli nie, ustaw `linkTemplate`
-- miejsce przycisku: wiersz `#projector_stocks` („Ten produkt nie jest dostępny w sklepie stacjonarnym”) – przycisk zastępuje ten tekst, ikona zostaje z szablonu; gdy wiersza brak, przycisk trafia za `#projector_form`; inne miejsce – atrybut `data-anchor`
+- miejsce linku na karcie: wiersz `#projector_stocks`, jeśli szablon go ma; w przeciwnym razie nowy wiersz na liście informacji (`#projector_additional_section`) przed „Bezpieczne zakupy”
 
 ## Wdrożenie
 
 1. Wdróż projekt na Vercelu (najpierw preview), podłącz go do sklepu testowego / panelu demo.
-2. W panelu: `Sklep > Dodatki HTML/JS` → kampania aktywna na sklepach salonów → **Nowy dodatek**, typ **HTML**, podstrona **Karta towaru** (`/projector.php`), ładowanie razem z treścią strony:
+2. W panelu: `Sklep > Dodatki HTML/JS` → kampania aktywna na sklepach salonów → **Nowy dodatek**, typ **HTML**, podstrony **Karta towaru** (`/projector.php`) i **Koszyk** (`/basketedit.php`), ładowanie razem z treścią strony:
 
    ```html
    <script src="https://<projekt>.vercel.app/widget.js" defer></script>
@@ -63,13 +63,13 @@ Do potwierdzenia na sklepie testowym:
 3. Przetestuj: produkt na stanie w kilku salonach, zmiana rozmiaru (szablon przerysowuje kartę – przycisk wraca na miejsce), produkt z rozmiarami, brak w bieżącym salonie, błąd API (okno pokazuje „Spróbuj ponownie”), widok mobilny.
 4. Przed produkcją: code review i standardowa ścieżka change management.
 
-## Przenoszenie koszyka
+## Koszyk
 
-Dodatek „przenoszenie koszyka” przechwytuje kliknięcia w linki `a.swr-om__link, a.swr-tl__link`. Żeby przejście z panelu stanów też zabierało koszyk, dopisz w nim selektor `a.ssa__go`:
+Na stronie koszyka nad przyciskiem „Przejdź dalej” pojawia się blok **Odbierz w salonie**. Panel pokazuje dla każdego salonu, czy jest w nim cały koszyk (z rozwijaną listą: stan w salonie / potrzebna ilość). Zawartość koszyka widget czyta z GraphQL sklepu, stany wszystkich produktów pobiera jednym zapytaniem do `/api/stock?productIds=…` (do 30 produktów).
 
-```js
-var a = e.target.closest && e.target.closest('a.swr-om__link, a.swr-tl__link, a.ssa__go');
-```
+## Przejście do innego salonu
+
+Przycisk „Przejdź” uruchamia dodatek przenoszenia koszyka (ten sam mechanizm co zmiana oddziału w pasku „Twój oddział”), więc koszyk jedzie z klientem. Z karty towaru klient ląduje na tym samym produkcie, z koszyka – w koszyku salonu. Bez tego dodatku działa zwykłe przejście z parametrem `?oddzial=`.
 
 ## Ograniczenia
 
