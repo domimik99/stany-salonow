@@ -1,6 +1,6 @@
 # Stany w salonach – widget karty towaru IdoSell
 
-Przycisk **Sprawdź dostępność w salonach** na karcie towaru. Po kliknięciu widget pobiera stany produktu we wszystkich magazynach-salonach, rozpoznaje po domenie, w którym salonie jest klient („jesteś tutaj”), i daje link do tego samego produktu na domenie innego salonu.
+Link **Sprawdź dostępność w salonach** na karcie towaru. Po kliknięciu z prawej wysuwa się panel ze stanami produktu we wszystkich salonach: bieżący salon (rozpoznany po domenie) na górze z oznaczeniem „Jesteś tutaj”, pozostałe z liczbą sztuk i przyciskiem „Przejdź” do tego samego produktu w danym salonie (z parametrem `?oddzial=`).
 
 ```
 Karta towaru (katowice.example.pl)                Vercel                          Panel IdoSell
@@ -16,7 +16,7 @@ Klucz API nigdy nie trafia do przeglądarki – zna go tylko funkcja serwerowa.
 |---|---|
 | `config/salons.js` | salony: nazwa, domena, ID magazynu; tryb prezentacji, próg „ostatnie sztuki”, format linku, cache |
 | `api/stock.js` | proxy do API Admin IdoSell: biała lista domen (CORS), walidacja ID, timeout 5 s, zwraca tylko salony z konfiguracji |
-| `public/widget.js` | przycisk + okno z listą salonów, osadzany w sklepie przez Dodatki HTML/JS |
+| `public/widget.js` | link w karcie towaru + panel wysuwany z prawej (styl oddziałów: granat/niebieski, Lato), osadzany przez Dodatki HTML/JS |
 
 ## Założenie
 
@@ -62,6 +62,14 @@ Do potwierdzenia na sklepie testowym:
    Typ **HTML**, nie JS – wklejany jest znacznik `<script>` z adresem pliku, a typ JS przyjmuje tylko czysty kod bez znaczników.
 3. Przetestuj: produkt na stanie w kilku salonach, zmiana rozmiaru (szablon przerysowuje kartę – przycisk wraca na miejsce), produkt z rozmiarami, brak w bieżącym salonie, błąd API (okno pokazuje „Spróbuj ponownie”), widok mobilny.
 4. Przed produkcją: code review i standardowa ścieżka change management.
+
+## Przenoszenie koszyka
+
+Dodatek „przenoszenie koszyka” przechwytuje kliknięcia w linki `a.swr-om__link, a.swr-tl__link`. Żeby przejście z panelu stanów też zabierało koszyk, dopisz w nim selektor `a.ssa__go`:
+
+```js
+var a = e.target.closest && e.target.closest('a.swr-om__link, a.swr-tl__link, a.ssa__go');
+```
 
 ## Ograniczenia
 

@@ -110,5 +110,11 @@ export default async function handler(req, res) {
   }));
 
   res.setHeader('Cache-Control', `public, s-maxage=${config.cacheSeconds}, stale-while-revalidate=${config.cacheSeconds * 2}`);
-  return res.status(200).json({ productId, display: config.display, linkTemplate: config.linkTemplate, salons });
+  return res.status(200).json({
+    productId,
+    display: config.display,
+    lowStockThreshold: config.lowStockThreshold,
+    linkTemplate: config.linkTemplate,
+    salons,
+  });
 }
