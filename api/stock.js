@@ -6,6 +6,8 @@ const SIZE_KEYS = ['sizeId', 'size_id'];
 const TIMEOUT_MS = 5000;
 
 const normalizeHost = (h) => String(h || '').toLowerCase().replace(/^www\./, '');
+// Magazyn może przyjść jako 1 albo "M1" – oba zapisy traktujemy tak samo.
+const normalizeStock = (id) => String(id).trim().replace(/^m/i, '');
 const allowedHosts = new Set(config.salons.map((s) => normalizeHost(s.domain)));
 
 function hostOf(origin) {
@@ -29,7 +31,7 @@ export function collectStocks(node, ctx = {}, out = new Map()) {
   const qty = raw === undefined ? NaN : Number(raw);
 
   if (stockId !== undefined && Number.isFinite(qty)) {
-    const key = String(stockId);
+    const key = normalizeStock(stockId);
     const entry = out.get(key) || { total: 0, sizes: {} };
     const sizeKey = sizeId === undefined ? 'uniw' : String(sizeId);
     entry.total += qty;
@@ -104,7 +106,7 @@ export default async function handler(req, res) {
     id: s.id,
     name: s.name,
     domain: s.domain,
-    ...present(stocks.get(String(s.stockId)) || { total: 0, sizes: {} }),
+    ...present(stocks.get(normalizeStock(s.stockId)) || { total: 0, sizes: {} }),
   }));
 
   res.setHeader('Cache-Control', `public, s-maxage=${config.cacheSeconds}, stale-while-revalidate=${config.cacheSeconds * 2}`);
